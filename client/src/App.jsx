@@ -3,6 +3,7 @@ import AuthProvider from './auth/AuthProvider';
 import { useAuth, HOME_BY_ROLE } from './auth/auth';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import StudentHome from './pages/student/StudentHome';
@@ -19,11 +20,18 @@ import { Departments, Courses, Subjects, Semesters } from './pages/admin/Academi
 import Staff from './pages/admin/Staff';
 import Assignments from './pages/admin/Assignments';
 
-// "/" sends each user to their own dashboard
+// "/" shows the landing page to visitors and sends logged-in users to their own dashboard
+function Home() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="page-loading">Loading…</div>;
+  return user ? <Navigate to={HOME_BY_ROLE[user.role]} replace /> : <Landing />;
+}
+
+// Unknown URLs go to the user's dashboard, or the landing page when logged out
 function RootRedirect() {
   const { user, loading } = useAuth();
   if (loading) return <div className="page-loading">Loading…</div>;
-  return <Navigate to={user ? HOME_BY_ROLE[user.role] : '/login'} replace />;
+  return <Navigate to={user ? HOME_BY_ROLE[user.role] : '/'} replace />;
 }
 
 export default function App() {
@@ -31,7 +39,7 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<RootRedirect />} />
+          <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
