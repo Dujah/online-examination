@@ -75,6 +75,16 @@ CREATE TABLE `exam_schedule` (
   CONSTRAINT `chk_schedule_times` CHECK ((`end_time` > `start_time`))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `exam_violation` (
+  `violation_id` int NOT NULL AUTO_INCREMENT,
+  `student_exam_id` int NOT NULL,
+  `violation_type` enum('TAB_HIDDEN','WINDOW_BLUR','FULLSCREEN_EXIT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `occurred_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`violation_id`),
+  KEY `idx_violation_attempt` (`student_exam_id`),
+  CONSTRAINT `fk_violation_attempt` FOREIGN KEY (`student_exam_id`) REFERENCES `student_exam` (`student_exam_id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `option_choice` (
   `option_id` int NOT NULL AUTO_INCREMENT,
   `question_id` int NOT NULL,

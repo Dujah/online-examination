@@ -6,6 +6,12 @@ import { useAction } from '../../hooks/useAction';
 import { Badge, ErrorText, Message } from '../../components/ui';
 import { num } from '../../format';
 
+const VIOLATION_LABELS = {
+  TAB_HIDDEN: 'switched to another tab or minimised the browser',
+  WINDOW_BLUR: 'clicked into another window or app',
+  FULLSCREEN_EXIT: 'left fullscreen'
+};
+
 // One student's paper. MCQs are auto-marked; the teacher enters marks for written answers.
 export default function GradeAttempt() {
   const { id } = useParams();
@@ -55,6 +61,20 @@ function GradingForm({ attempt, notice, onSaved }) {
 
       {locked && <p className="msg msg-success">Results are published, so these marks are final.</p>}
       <Message message={message || notice} />
+
+      {attempt.violations.length > 0 && (
+        <div className="card violation-card">
+          <h2>Left the exam screen {attempt.violations.length} time{attempt.violations.length === 1 ? '' : 's'}</h2>
+          <ul className="plain-list small">
+            {attempt.violations.map((v, i) => (
+              <li key={i}>
+                <strong>{new Date(v.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</strong>
+                {' — '}{VIOLATION_LABELS[v.violation_type] || v.violation_type}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {attempt.questions.map((q, i) => (
         <div key={q.question_id} className={`card answer-card ${q.question_type === 'THEORY' && !q.graded_at ? 'needs-grading' : ''}`}>

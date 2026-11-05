@@ -12,6 +12,9 @@ const asyncHandler = require('../middleware/asynchander');
 
 const GRACE_SECONDS = 30;
 const MAX_ANSWER_LENGTH = 10000;
+// Times a student may leave the exam screen (tab, window, fullscreen); reaching this submits the attempt
+const MAX_VIOLATIONS = 3;
+const VIOLATION_TYPES = ['TAB_HIDDEN', 'WINDOW_BLUR', 'FULLSCREEN_EXIT'];
 
 const DEADLINE_SQL = `LEAST(se.started_at + INTERVAL e.duration_minutes MINUTE, TIMESTAMP(es.exam_date, es.end_time))`;
 
@@ -116,6 +119,9 @@ async function buildAttemptView(attempt) {
     });
   }
 
+  const [[{ violation_count }]] = await db.query(
+    'SELECT COUNT(*) AS violation_count FROM exam_violation WHERE student_exam_id = ?', [attempt.student_exam_id]);
+
   return {
     student_exam_id: attempt.student_exam_id,
     schedule_id: attempt.schedule_id,
@@ -128,6 +134,8 @@ async function buildAttemptView(attempt) {
     deadline: attempt.deadline,
     // Use this for the client timer rather than comparing clocks
     seconds_remaining: attempt.status === 'IN_PROGRESS' ? attempt.seconds_remaining : 0,
+    violation_count,
+    max_violations: MAX_VIOLATIONS,
     questions
   };
 }
@@ -385,6 +393,50 @@ exports.submitAttempt = asyncHandler(async (req, res) => {
     await connection.commit();
     // Scores are not returned — they're released when the teacher publishes results
     res.json({ student_exam_id: attempt.student_exam_id, status: 'COMPLETED' });
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+});
+
+// POST record that the student left the exam screen. Body: { type: 'TAB_HIDDEN' | 'WINDOW_BLUR' | 'FULLSCREEN_EXIT' }
+// The limit is enforced here, not only in the browser: the attempt is submitted on reaching MAX_VIOLATIONS.
+exports.reportViolation = asyncHandler(async (req, res) => {
+  const { type } = req.body;
+  if (!VIOLATION_TYPES.includes(type)) {
+    return res.status(400).json({ error: `type must be one of ${VIOLATION_TYPES.join(', ')}` });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // The row lock also serialises two reports sent at once, so the count can't skip past the limit
+    const attempt = await loadOwnAttempt(req, res, connection, true);
+    if (!attempt) {
+      await connection.rollback();
+      return;
+    }
+    if (attempt.status !== 'IN_PROGRESS') {
+      await connection.rollback();
+      return res.status(409).json({ error: 'This attempt has already been submitted' });
+    }
+    if (await closeIfExpired(connection, attempt)) {
+      await connection.commit();
+      return res.status(409).json({ error: 'Time is up. Your saved answers have been submitted' });
+    }
+
+    await connection.query('INSERT INTO exam_violation (student_exam_id, violation_type) VALUES (?, ?)', [attempt.student_exam_id, type]);
+    const [[{ count }]] = await connection.query(
+      'SELECT COUNT(*) AS count FROM exam_violation WHERE student_exam_id = ?', [attempt.student_exam_id]);
+
+    const submitted = count >= MAX_VIOLATIONS;
+    if (submitted) await finalizeAttempt(connection, attempt);
+
+    await connection.commit();
+    res.status(201).json({ violation_count: count, max_violations: MAX_VIOLATIONS, submitted });
   } catch (err) {
     await connection.rollback();
     throw err;

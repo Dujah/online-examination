@@ -271,6 +271,20 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.5rem; font-wei
 .done-card { max-width: 520px; margin: 4rem auto 0; display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-start; }
 .done-card h1, .done-card p { margin: 0; }
 
+/* Exam lockdown: start gate and "you left the screen" warning */
+.exam-header-right { display: flex; align-items: center; gap: 0.75rem; }
+.exam-locked .question-text, .exam-locked .choice { -webkit-user-select: none; user-select: none; }
+.lock-screen { flex: 1; display: grid; place-items: center; padding: 2rem 0; }
+.lock-card { max-width: 520px; width: 100%; padding: 2rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+.lock-card h1, .lock-card p { margin: 0; }
+.lock-icon { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: var(--accent); }
+.lock-icon-warn { background: var(--danger-bg); color: var(--danger); }
+.lock-rules { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.lock-count { font-size: 1.4rem; font-weight: 700; color: var(--danger); }
+.lock-btn { align-self: stretch; text-align: center; padding-top: 0.75rem; padding-bottom: 0.75rem; margin-top: 0.25rem; }
+.violation-card { border-left: 5px solid var(--amber); }
+.violation-card h2 { margin-bottom: 0.5rem; }
+
 @media (max-width: 700px) {
   .exam-body { grid-template-columns: 1fr; }
   .palette { position: static; }

@@ -5,6 +5,18 @@ require('dotenv').config();
 // so every connection must use the institution's time zone, not the server's (cloud MySQL is usually UTC)
 const TIME_ZONE = process.env.DB_TIMEZONE || '+05:30';
 
+// Hosting dashboards often store the CA cert as a single line with "\n" escapes, or without the
+// BEGIN/END lines; Node only accepts a full PEM block, so rebuild one from whatever was pasted
+function loadCaCert(raw) {
+  if (!raw) return undefined;
+  const body = raw
+    .replace(/\\n/g, '\n')
+    .replace(/-----(BEGIN|END) CERTIFICATE-----/g, '')
+    .replace(/\s+/g, '');
+  const lines = body.match(/.{1,64}/g).join('\n');
+  return `-----BEGIN CERTIFICATE-----\n${lines}\n-----END CERTIFICATE-----\n`;
+}
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 3306,
@@ -12,7 +24,7 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   // Many hosted MySQL services require an encrypted connection; set DB_SSL=true for those
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
+  ssl: process.env.DB_SSL === 'true' ? { ca: loadCaCert(process.env.DB_CA_CERT) } : undefined,
   // How mysql2 converts DATETIME values to and from JS Dates; must match the session time zone below
   timezone: TIME_ZONE
 });

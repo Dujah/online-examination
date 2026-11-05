@@ -5,6 +5,9 @@ import { useAction } from '../../hooks/useAction';
 import { Badge, ErrorText, Message } from '../../components/ui';
 import { formatDate, num } from '../../format';
 
+// Matches MAX_VIOLATIONS in the attempt controller: leaving the screen this many times submits the exam
+const MAX_VIOLATIONS = 3;
+
 // Every student's attempt for one exam, grading progress, and publishing.
 export default function ExamResults() {
   const { id } = useParams();
@@ -58,7 +61,7 @@ export default function ExamResults() {
       <div className="card table-wrap">
         {data.attempts.length === 0 ? <p className="muted">No one has taken this exam yet.</p> : (
           <table>
-            <thead><tr><th>Student</th><th>Enrollment</th><th>Date</th><th>Status</th><th>Marks</th><th>Grade</th><th className="actions-col"></th></tr></thead>
+            <thead><tr><th>Student</th><th>Enrollment</th><th>Date</th><th>Status</th><th title="Times the student switched tab or window, or left fullscreen">Left screen</th><th>Marks</th><th>Grade</th><th className="actions-col"></th></tr></thead>
             <tbody>
               {data.attempts.map(a => (
                 <tr key={a.student_exam_id}>
@@ -66,6 +69,13 @@ export default function ExamResults() {
                   <td>{a.enrollment_no}</td>
                   <td>{formatDate(a.exam_date)}</td>
                   <td><Badge value={a.status} /></td>
+                  <td>
+                    {a.violation_count > 0
+                      ? <span className={`badge ${a.violation_count >= MAX_VIOLATIONS ? 'badge-danger' : 'badge-warning'}`}>
+                          {a.violation_count}×{a.violation_count >= MAX_VIOLATIONS ? ' · auto-submitted' : ''}
+                        </span>
+                      : <span className="muted">—</span>}
+                  </td>
                   <td>{a.total_marks_obtained == null ? '—' : num(a.total_marks_obtained)}</td>
                   <td>{a.status === 'COMPLETED' || a.status === 'ABSENT' ? a.grade ?? '—' : '—'}</td>
                   <td className="actions-col">

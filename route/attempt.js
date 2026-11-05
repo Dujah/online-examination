@@ -11,5 +11,6 @@ router.post('/', attemptController.startAttempt);
 router.get('/:id', attemptController.getAttempt);
 router.put('/:id/answers', attemptController.saveAnswers);
 router.post('/:id/submit', attemptController.submitAttempt);
+router.post('/:id/violations', attemptController.reportViolation);
 
 module.exports = router;

@@ -7,6 +7,11 @@ import { num } from '../../format';
 
 const SAVE_DELAY_MS = 800;   // wait this long after the last change before saving
 const RETRY_DELAY_MS = 3000; // retry a failed save after this long
+const LEAVE_CHECK_MS = 150;  // switching tabs fires blur, visibilitychange and fullscreenchange together; wait, then record one
+
+// Fullscreen isn't available everywhere (e.g. Safari on iPhone); there only tab and window switches are watched
+const canFullscreen = () => Boolean(document.documentElement.requestFullscreen);
+const isFullscreen = () => Boolean(document.fullscreenElement);
 
 // The exam-taking screen. Full screen (no sidebar) to keep the student focused.
 export default function TakeExam() {
@@ -120,6 +125,71 @@ function ExamSession({ attempt, onClosed }) {
     }
   }, [attempt.student_exam_id, flush, onClosed]);
 
+  // ---------- Exam lockdown ----------
+  // A web page can't stop a student switching tabs, but it can notice. The questions stay hidden until the
+  // student is in fullscreen, and are covered again whenever they leave (switch tab or window, or exit
+  // fullscreen). Each leave is reported; the server submits the attempt on reaching max_violations.
+  //   lock: 'gate' = not started yet, 'ok' = taking the exam, 'away' = left the screen, warning shown
+  const [lock, setLockState] = useState('gate');
+  const lockRef = useRef('gate'); // the listeners below need the current value without re-subscribing
+  const setLock = (value) => { lockRef.current = value; setLockState(value); };
+  const [violations, setViolations] = useState(attempt.violation_count);
+  const maxViolations = attempt.max_violations;
+
+  // Called from a click, because browsers only allow fullscreen in response to the user
+  const enterExam = async () => {
+    if (canFullscreen() && !isFullscreen()) {
+      try { await document.documentElement.requestFullscreen(); } catch { return; }
+    }
+    setLock('ok');
+  };
+
+  useEffect(() => {
+    let timer;
+    const report = async (type) => {
+      setLock('away');
+      await flush(); // save answers first: this report may be the one that submits the exam
+      try {
+        const res = await api.post(`/attempts/${attempt.student_exam_id}/violations`, { type });
+        setViolations(res.violation_count);
+        if (res.submitted) {
+          onClosed(`Your exam was submitted automatically because you left the exam screen ${res.violation_count} times.`);
+        }
+      } catch (err) {
+        if (err.status === 409) onClosed(err.message);
+      }
+    };
+    const check = () => {
+      if (lockRef.current !== 'ok' || submitting.current) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (lockRef.current !== 'ok' || submitting.current) return;
+        const type = document.visibilityState === 'hidden' ? 'TAB_HIDDEN'
+          : canFullscreen() && !isFullscreen() ? 'FULLSCREEN_EXIT'
+          : !document.hasFocus() ? 'WINDOW_BLUR'
+          : null;
+        if (type) report(type);
+      }, LEAVE_CHECK_MS);
+    };
+    document.addEventListener('visibilitychange', check);
+    document.addEventListener('fullscreenchange', check);
+    window.addEventListener('blur', check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', check);
+      document.removeEventListener('fullscreenchange', check);
+      window.removeEventListener('blur', check);
+    };
+  }, [flush, onClosed, attempt.student_exam_id]);
+
+  // Leave fullscreen when the exam closes (submitted, or time up)
+  useEffect(() => () => {
+    if (isFullscreen()) document.exitFullscreen().catch(() => {});
+  }, []);
+
+  // No copying questions out or pasting answers in
+  const block = (e) => e.preventDefault();
+
   const remaining = Math.max(0, Math.ceil((deadline - now) / 1000));
 
   // Tick the clock once a second
@@ -178,15 +248,68 @@ function ExamSession({ attempt, onClosed }) {
   const seconds = String(remaining % 60).padStart(2, '0');
   const saveLabel = { saved: 'All answers saved', unsaved: 'Unsaved changes…', saving: 'Saving…', error: 'Connection problem — retrying…' }[saveState];
 
+  const warningsLeft = Math.max(0, maxViolations - violations);
+
+  if (lock !== 'ok') {
+    return (
+      <div className="exam-shell">
+        <div className="lock-screen">
+          <div className="card lock-card" role="alertdialog" aria-modal="true" aria-labelledby="lock-title">
+            {lock === 'gate' ? (
+              <>
+                <span className="lock-icon" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                </span>
+                <h1 id="lock-title">{attempt.exam_title}</h1>
+                <p>This exam is locked to the exam screen{canFullscreen() ? ' and runs in fullscreen' : ''}.</p>
+                <ul className="lock-rules">
+                  <li>Don't switch tabs, windows or apps{canFullscreen() ? ', and stay in fullscreen' : ''}.</li>
+                  <li>Each time you leave is recorded and shown to your teacher.</li>
+                  <li>Leaving <strong>{maxViolations} times</strong> submits your exam automatically.</li>
+                  <li>Copy, paste and right-click are turned off.</li>
+                </ul>
+                {violations > 0 && <p className="msg msg-error">You have already left the exam screen {violations} of {maxViolations} times.</p>}
+                <button className="btn btn-primary lock-btn" onClick={enterExam}>
+                  {canFullscreen() ? 'Enter fullscreen and start' : 'Start exam'}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="lock-icon lock-icon-warn" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18h.01" /></svg>
+                </span>
+                <h1 id="lock-title">You left the exam screen</h1>
+                <p>This has been recorded and your teacher can see it.</p>
+                <p className="lock-count">Warning {Math.min(violations, maxViolations)} of {maxViolations}</p>
+                <p className="muted">
+                  {warningsLeft === 1
+                    ? 'If you leave once more, your exam will be submitted automatically.'
+                    : `Leaving ${warningsLeft} more times will submit your exam automatically.`}
+                </p>
+                <button className="btn btn-primary lock-btn" onClick={enterExam}>Return to exam</button>
+              </>
+            )}
+            <p className="muted small">Time remaining: {minutes}:{seconds}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="exam-shell">
+    <div className="exam-shell exam-locked" onCopy={block} onCut={block} onPaste={block} onContextMenu={block} onDragStart={block}>
       <header className="exam-header card">
         <div>
           <h1>{attempt.exam_title}</h1>
           <span className={`save-state save-${saveState}`}>{saveLabel}</span>
         </div>
-        <div className={`timer ${remaining <= 300 ? 'timer-low' : ''}`} role="timer" aria-label="Time remaining">
-          {minutes}:{seconds}
+        <div className="exam-header-right">
+          {violations > 0 && (
+            <span className="badge badge-warning" title="Times you left the exam screen">Warnings {violations}/{maxViolations}</span>
+          )}
+          <div className={`timer ${remaining <= 300 ? 'timer-low' : ''}`} role="timer" aria-label="Time remaining">
+            {minutes}:{seconds}
+          </div>
         </div>
       </header>
 

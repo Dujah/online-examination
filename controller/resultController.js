@@ -100,7 +100,8 @@ exports.getExamResults = asyncHandler(async (req, res) => {
            r.total_marks_obtained >= e.passing_marks AS passed,
            -- only submitted attempts are waiting on the teacher
            IF(se.status = 'COMPLETED',
-              (SELECT COUNT(*) FROM scorecard sc WHERE sc.result_id = r.result_id AND sc.graded_at IS NULL), 0) AS ungraded_count
+              (SELECT COUNT(*) FROM scorecard sc WHERE sc.result_id = r.result_id AND sc.graded_at IS NULL), 0) AS ungraded_count,
+           (SELECT COUNT(*) FROM exam_violation v WHERE v.student_exam_id = se.student_exam_id) AS violation_count
     FROM student_exam se
     JOIN exam_schedule es ON es.schedule_id = se.schedule_id
     JOIN exam e ON e.exam_id = es.exam_id
@@ -138,7 +139,12 @@ exports.getAttemptForGrading = asyncHandler(async (req, res) => {
   if (!attempt) return;
 
   const { created_by, ...info } = attempt;
-  res.json({ ...info, questions: await loadBreakdown(attempt.result_id) });
+  // Each time the student left the exam screen
+  const [violations] = await db.query(
+    'SELECT violation_type, occurred_at FROM exam_violation WHERE student_exam_id = ? ORDER BY occurred_at, violation_id',
+    [attempt.student_exam_id]
+  );
+  res.json({ ...info, violations, questions: await loadBreakdown(attempt.result_id) });
 });
 
 // PUT grade THEORY answers. Body: { marks: [{ question_id, marks_obtained }] }. Can be re-graded until published.
