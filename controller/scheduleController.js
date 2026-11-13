@@ -59,11 +59,12 @@ async function validateSlot(conn, { exam, exam_date, start_time, end_time, ignor
   }
 
   const [[{ valid_date, in_future }]] = await conn.query(
-    'SELECT DATE(?) IS NOT NULL AS valid_date, TIMESTAMP(?, ?) > NOW() AS in_future',
+    // Times are HH:MM, so compare against the start of the current minute — lets an exam open right now
+    "SELECT DATE(?) IS NOT NULL AS valid_date, TIMESTAMP(?, ?) >= DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:00') AS in_future",
     [exam_date, exam_date, start_time]
   );
   if (!valid_date) return { status: 400, error: 'exam_date is not a real date' };
-  if (!in_future) return { status: 400, error: 'The exam must start in the future' };
+  if (!in_future) return { status: 400, error: 'The exam cannot start in the past' };
 
   // Rule: active schedules for the same semester can't overlap — the same students would have to sit both
   const [clash] = await conn.query(`
